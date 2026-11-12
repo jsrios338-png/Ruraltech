@@ -1,0 +1,34 @@
+RURALTECH — INSTALACIÓN EN CPANEL (ESTRUCTURA COMPLETA)
+
+ATENCIÓN: SON DOS CARPETAS DISTINTAS. NO SUBA SOLO EL HTML.
+
+1. Abra Administrador de archivos de cPanel, en su directorio HOME (ejemplo /home/usuario/).
+2. Suba la carpeta ruraltech_core COMPLETA al HOME, AL MISMO NIVEL QUE public_html, NO DENTRO DE public_html.
+3. Dentro de public_html cree ruraltech y suba a ella los archivos de public_html/ruraltech de este ZIP: index.html, api.php, api_bootstrap.php, setup.php y .htaccess.
+4. Compruebe que /home/usuario/ruraltech_core/src.php y /home/usuario/ruraltech_core/private/data.json existen. Mantenga esta carpeta FUERA del directorio público.
+5. Configure PHP >= 8.2 y extensiones session, fileinfo, openssl, Phar. Ajuste upload_max_filesize >= 16M y post_max_size >= 17M.
+6. Cree o habilite HTTPS para https://su-dominio/ruraltech/.
+7. Asigne permisos de escritura al proceso PHP en ruraltech_core/private/data.json y ruraltech_core/private/uploads. Evite 777.
+8. Abra https://su-dominio/ruraltech/setup.php.
+9. Desde cPanel lea el archivo PRIVADO ruraltech_core/private/install-token.txt creado al abrir setup.php. Copie ese código en el formulario junto al nombre, correo y contraseña de administrador (12+ caracteres).
+10. Tras crear la cuenta, ELIMINE public_html/ruraltech/setup.php y api_bootstrap.php (este último solo es necesario para setup.php). Inicie sesión en https://su-dominio/ruraltech/.
+11. Cree cuentas docentes desde Administración; verifique cargas, progreso y copia TAR.
+
+ESTRUCTURA ESPERADA
+/home/usuario/
+   ruraltech_core/
+     src.php
+     private/data.json
+     private/uploads/
+     scripts/create_admin.php
+     scripts/restore_backup.php
+   public_html/
+     ruraltech/
+       index.html
+       api.php
+       setup.php       (ELIMINAR TRAS INSTALACIÓN)
+       api_bootstrap.php (ELIMINAR TRAS INSTALACIÓN)
+       .htaccess
+
+IMPORTANTE: NO ES UN PLUGIN DE MOODLE. ES UNA WEB EDUCATIVA PHP INDEPENDIENTE.
+Si su proveedor limita carpetas fuera de public_html, pida configuración de docroot o un VPS; no mueva ruraltech_core al acceso público.

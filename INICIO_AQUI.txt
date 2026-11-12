@@ -1,0 +1,9 @@
+RURALTECH — PAQUETES AUDITADOS
+
+Se incluyen DOS modalidades de instalación:
+- hosting_cpanel: subir carpetas exactamente como indica LEEME_CPanel.txt.
+- servidor_php: configurar el dominio para apuntar a servidor_php/public.
+
+La causa del fallo anterior es que faltaban scripts al compartir archivos sueltos y se requería una estructura de rutas específica. Ahora todos los componentes se incluyen de forma explícita.
+
+No es Moodle; es una aplicación PHP independiente con usuarios compartidos en un servidor.

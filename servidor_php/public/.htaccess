@@ -1,0 +1,4 @@
+Options -Indexes
+<Files "api_bootstrap.php">
+Require all denied
+</Files>

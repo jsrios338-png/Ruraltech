@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+**/private/data.json
+**/private/install-token.txt
+**/private/uploads/*
+!**/private/uploads/.gitkeep
+*.tmp

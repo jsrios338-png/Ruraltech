@@ -1,0 +1,10 @@
+RURALTECH — SERVIDOR CON PHP
+
+1. La raíz pública del servidor DEBE apuntar a servidor_php/public, no a servidor_php completo.
+2. PHP >= 8.2 y permisos de escritura sobre private/data.json y private/uploads.
+3. Local: cd servidor_php; php -S 127.0.0.1:8080 -t public
+4. Abra http://127.0.0.1:8080/setup.php. Copie el token desde servidor_php/private/install-token.txt en el formulario y cree la cuenta administradora.
+5. Elimine public/setup.php y public/api_bootstrap.php después de configurar la cuenta.
+6. Para crear cuenta por consola (alternativa): php scripts/create_admin.php "Nombre" "correo@ejemplo.edu" "ClaveLargaSegura123!"
+7. Producción: HTTPS obligatorio, docroot public, permisos mínimos, respaldos fuera del sitio público.
+8. Restauración: php scripts/restore_backup.php ruta/respaldo.tar --confirm
