@@ -3,23 +3,175 @@
 (function () {
   const baseNav = window.nav;
   const baseGo = window.go;
+  let activePage = 'home';
 
   window.nav = function () {
     baseNav();
     if (!session.user) return;
     const button = document.createElement('button');
     button.textContent = '📝 Actividades';
-    button.onclick = () => go('activities');
-    $('nav').append(button);
+    button.setAttribute('onclick', "go('activities')");
+    const nav = $('nav');
+    nav.insertBefore(button, nav.children[4] || null);
+    nav.querySelectorAll('button').forEach(item => {
+      const match = item.getAttribute('onclick')?.match(/go\('([^']+)'\)/);
+      if (match?.[1] === activePage) item.setAttribute('aria-current', 'page');
+    });
   };
 
   window.go = async function (page) {
+    activePage = page;
     if (page === 'activities') {
       if (!session.user) return login();
       await activityPage();
+      $('nav')?.querySelectorAll('button').forEach(item => {
+        const match = item.getAttribute('onclick')?.match(/go\('([^']+)'\)/);
+        if (match?.[1] === activePage) item.setAttribute('aria-current', 'page');
+        else item.removeAttribute('aria-current');
+      });
       return;
     }
-    return baseGo(page);
+    const result = await baseGo(page);
+    if (page === 'logout') activePage = 'login';
+    $('nav')?.querySelectorAll('button').forEach(item => {
+      const match = item.getAttribute('onclick')?.match(/go\('([^']+)'\)/);
+      if (match?.[1] === activePage) item.setAttribute('aria-current', 'page');
+      else item.removeAttribute('aria-current');
+    });
+    return result;
+  };
+
+  window.home = async function () {
+    const isAdmin = session.user?.role === 'admin';
+    try {
+      const [resources, activities, users] = await Promise.all([
+        api('resource_list'),
+        api('activity_list'),
+        isAdmin ? api('users') : Promise.resolve([]),
+      ]);
+      const activeActivities = activities.filter(activity => activity.active);
+      const mySubmissions = activities.reduce((count, activity) => count + activity.submissions.length, 0);
+      const completion = overview.progress;
+      show(`<section class="hero">
+        <p class="eyebrow">${isAdmin ? 'CENTRO DE CONTROL' : 'TU ESPACIO DE APRENDIZAJE'}</p>
+        <h1>${isAdmin ? 'Acompañar también es enseñar.' : `Qué bueno verte, ${esc(session.user?.name?.split(' ')[0] || 'docente')}.`}</h1>
+        <p>${isAdmin
+          ? 'Publica recursos, propone nuevas actividades y acompaña el crecimiento de cada docente.'
+          : 'Avanza a tu ritmo, explora ideas para el aula y comparte lo que vas aprendiendo.'}</p>
+        <button class="btn" onclick="go('${isAdmin ? 'admin' : 'route'}')">${isAdmin ? 'Ir al seguimiento' : 'Continuar mi ruta'}</button>
+      </section>
+      <section class="dashboard-stats" aria-label="Resumen de formación">
+        ${isAdmin
+          ? `<article class="stat-card"><span>Docentes en el aula</span><strong>${users.filter(user => user.role === 'teacher').length}</strong><small>cuentas activas</small></article>
+             <article class="stat-card"><span>Materiales disponibles</span><strong>${resources.length}</strong><small>documentos y videos</small></article>
+             <article class="stat-card"><span>Actividades abiertas</span><strong>${activeActivities.length}</strong><small>para la comunidad docente</small></article>`
+          : `<article class="stat-card"><span>Tu avance</span><strong>${completion.percent}<i>%</i></strong><div>${progress(completion.percent)}</div><small>${completion.completed} de 6 módulos completos</small></article>
+             <article class="stat-card"><span>Materiales para explorar</span><strong>${resources.length}</strong><small>documentos y videos publicados</small><button class="text-action" onclick="go('resources')">Abrir biblioteca <span aria-hidden="true">→</span></button></article>
+             <article class="stat-card"><span>Actividades abiertas</span><strong>${activeActivities.length}</strong><small>${mySubmissions} evidencias entregadas</small><button class="text-action" onclick="go('activities')">Ver mis actividades <span aria-hidden="true">→</span></button></article>`}
+      </section>
+      <div class="section-heading"><div><p class="eyebrow">SIGUIENTE PASO</p><h2>${isAdmin ? 'Herramientas para acompañar' : 'Un espacio para cada etapa'}</h2></div></div>
+      <section class="action-grid">
+        <button class="action-card" onclick="go('${isAdmin ? 'resources' : 'route'}')">
+          <span class="action-icon">${isAdmin ? '↗' : '01'}</span><strong>${isAdmin ? 'Biblioteca de materiales' : 'Mi ruta de formación'}</strong>
+          <span>${isAdmin ? 'Publica documentos, hojas de cálculo y videos para el aula.' : 'Retoma los módulos y microlecciones donde los dejaste.'}</span><b>Explorar <span aria-hidden="true">→</span></b>
+        </button>
+        <button class="action-card" onclick="go('${isAdmin ? 'activities' : 'evidence'}')">
+          <span class="action-icon">${isAdmin ? '✳' : '02'}</span><strong>${isAdmin ? 'Actividades y evidencias' : 'Mis entregas'}</strong>
+          <span>${isAdmin ? 'Asigna retos y revisa los trabajos enviados por docentes.' : 'Consulta las evidencias que ya compartiste.'}</span><b>${isAdmin ? 'Gestionar actividades' : 'Ver evidencias'} <span aria-hidden="true">→</span></b>
+        </button>
+        <button class="action-card" onclick="go('community')">
+          <span class="action-icon">${isAdmin ? '◎' : '03'}</span><strong>Comunidad RuralTech</strong>
+          <span>Comparte experiencias y aprende junto a otros docentes rurales.</span><b>Entrar a la comunidad <span aria-hidden="true">→</span></b>
+        </button>
+      </section>`);
+    } catch (error) {
+      msg(error);
+    }
+  };
+
+  window.admin = async function () {
+    if (session.user?.role !== 'admin') {
+      show('<h1>Acceso no autorizado</h1>');
+      return;
+    }
+
+    try {
+      const [users, evaluations] = await Promise.all([api('users'), api('evaluations')]);
+      const teachers = users.filter(user => user.role === 'teacher');
+      const average = teachers.length
+        ? Math.round(teachers.reduce((total, user) => total + user.progress.percent, 0) / teachers.length)
+        : 0;
+      const completedModules = teachers.reduce((total, user) => total + user.progress.completed, 0);
+
+      window.adminUsers = teachers;
+      window.adminEvals = evaluations;
+      show(`<section class="hero">
+        <p class="eyebrow">GESTIÓN DE LA COMUNIDAD</p>
+        <h1>El aprendizaje crece en comunidad.</h1>
+        <p>Organiza el acceso, acompaña el progreso y prepara recursos para los docentes.</p>
+        <button class="btn" onclick="go('resources')">Publicar un material</button>
+      </section>
+      <section class="dashboard-stats" aria-label="Resumen de administración">
+        <article class="stat-card"><span>Docentes registrados</span><strong>${teachers.length}</strong><small>cuentas de formación activas</small></article>
+        <article class="stat-card"><span>Avance promedio</span><strong>${average}<i>%</i></strong><div>${progress(average)}</div><small>sobre seis módulos</small></article>
+        <article class="stat-card"><span>Módulos completados</span><strong>${completedModules}</strong><small>sumados entre docentes</small></article>
+      </section>
+      <div class="section-heading"><div><p class="eyebrow">HERRAMIENTAS</p><h2>¿Qué quieres hacer?</h2></div></div>
+      <section class="action-grid">
+        <button class="action-card" onclick="go('resources')"><span class="action-icon">↗</span><strong>Biblioteca de materiales</strong><span>Publica documentos, hojas de cálculo y videos para el aula.</span><b>Gestionar recursos <span aria-hidden="true">→</span></b></button>
+        <button class="action-card" onclick="go('activities')"><span class="action-icon">✳</span><strong>Actividades y evidencias</strong><span>Asigna retos y revisa los trabajos enviados por docentes.</span><b>Gestionar actividades <span aria-hidden="true">→</span></b></button>
+        <button class="action-card" onclick="go('auditPage')"><span class="action-icon">◎</span><strong>Registro de actividad</strong><span>Consulta los eventos recientes de la plataforma.</span><b>Ver auditoría <span aria-hidden="true">→</span></b></button>
+      </section>
+      <section class="panel admin-panel">
+        <div class="section-heading"><div><p class="eyebrow">ACOMPAÑAMIENTO</p><h2>Seguimiento por docente</h2></div><button class="btn sec" onclick="adminExport()">Exportar CSV</button></div>
+        <label for="adminFilter">Buscar por nombre, sede o correo</label>
+        <input id="adminFilter" type="search" placeholder="Escribe para filtrar" oninput="adminFilter(this.value)">
+        <div class="table"><table><thead><tr><th>Nombre</th><th>Sede</th><th>Correo</th><th>Avance</th><th>Módulos</th><th>Acción</th></tr></thead><tbody>
+          ${teachers.map(user => `<tr class="urow" data-search="${esc(`${user.name} ${user.site} ${user.email}`.toLowerCase())}">
+            <td>${esc(user.name)}</td><td>${esc(user.site || '—')}</td><td>${esc(user.email)}</td>
+            <td>${user.progress.percent}%</td><td>${user.progress.completed}/6</td>
+            <td><button class="btn sec" onclick="adminDetail('${esc(user.id)}')">Ver detalle</button></td>
+          </tr>`).join('') || '<tr><td colspan="6">Todavía no hay docentes registrados.</td></tr>'}
+        </tbody></table></div>
+      </section>
+      <section class="admin-columns">
+        <div class="panel">
+          <p class="eyebrow">ACCESO A LA PLATAFORMA</p><h2>Crear cuenta</h2>
+          <label for="userName">Nombre completo</label><input id="userName" autocomplete="name">
+          <label for="userEmail">Correo</label><input id="userEmail" type="email" autocomplete="email">
+          <label for="userSite">Sede educativa</label><input id="userSite">
+          <label for="userRole">Rol</label><select id="userRole"><option value="teacher">Docente</option><option value="admin">Administrador</option></select>
+          <label for="userPassword">Contraseña inicial (mínimo 12 caracteres)</label><input id="userPassword" type="password" autocomplete="new-password">
+          <label for="userPassword2">Repetir contraseña</label><input id="userPassword2" type="password" autocomplete="new-password">
+          <button class="btn" onclick="adminCreateUser(this)">Crear cuenta</button>
+        </div>
+        <div class="panel">
+          <p class="eyebrow">VOZ DE LOS DOCENTES</p><h2>Valoraciones recibidas</h2>
+          ${evaluations.map(evaluation => {
+            const ratings = evaluation.ratings || [];
+            const averageRating = ratings.length
+              ? (ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length).toFixed(1)
+              : '—';
+            return `<details><summary>${esc(evaluation.name)} · promedio ${averageRating}/5</summary>
+              <p class="muted small">${esc(fmtDate(evaluation.updated))} · ${esc(ROLE_ES[evaluation.role] || evaluation.role)}</p>
+              <p>${ratings.map(rating => '★'.repeat(rating) + '☆'.repeat(5 - rating)).join(' · ')}</p>
+              <p>${esc(evaluation.comments || 'Sin comentarios')}</p></details>`;
+          }).join('') || '<p class="muted">Aún no hay valoraciones.</p>'}
+        </div>
+        <div class="panel">
+          <p class="eyebrow">RESPALDO Y CONTINUIDAD</p><h2>Respaldo completo</h2>
+          <p>Descarga los datos, el progreso y los archivos adjuntos de la plataforma.</p>
+          <button class="btn sec" onclick="window.open('api.php?action=backup','_blank')">Descargar respaldo integral</button>
+          <hr>
+          <h3>Restaurar respaldo</h3>
+          <p class="notice">Esta acción reemplaza los datos y archivos actuales. Se guarda una copia previa automáticamente.</p>
+          <label for="restoreFile">Archivo de respaldo (.tar)</label><input type="file" id="restoreFile" accept=".tar">
+          <button class="btn danger" onclick="adminRestore(this)">Restaurar respaldo</button>
+        </div>
+      </section>`);
+    } catch (error) {
+      msg(error);
+    }
   };
 
   window.resources = async function () {
