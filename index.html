@@ -13,7 +13,30 @@ const MODULES=[
 const MATERIALS=[['Guía de navegación',`RURALTECH — GUÍA DE NAVEGACIÓN\n1. Inicie sesión con su cuenta docente.\n2. Complete el diagnóstico inicial.\n3. Explore módulos del 0 al 5.\n4. Revise tres microlecciones por módulo.\n5. Desarrolle la actividad en texto o adjunte archivo.\n6. Responda cuestionario y autoevalúe.\n7. Consulte progreso y productos.\n8. Descargue recursos para trabajar sin conexión.`],['Plantilla de planeación TAC',`DOCENTE:\nSEDE:\nGRADOS:\nTEMA:\nOBJETIVO:\nNECESIDAD PEDAGÓGICA:\nHERRAMIENTA TAC Y JUSTIFICACIÓN:\nINICIO:\nDESARROLLO:\nCIERRE:\nEVIDENCIA:\nCRITERIOS DE EVALUACIÓN:\nALTERNATIVA OFFLINE:\nREFLEXIÓN:`],['Adaptación multigrado',`TEMA COMÚN:\nRECURSO DIGITAL:\nGRADO INICIAL - OBJETIVO Y ACTIVIDAD:\nGRADO INTERMEDIO - OBJETIVO Y ACTIVIDAD:\nGRADO AVANZADO - OBJETIVO Y ACTIVIDAD:\nTRABAJO AUTÓNOMO:\nMATERIAL IMPRESO:\nALTERNATIVA SIN CONEXIÓN:\nEVALUACIÓN DIFERENCIADA:`],['Lista de chequeo TAC',`[ ] Recurso relacionado con objetivo\n[ ] Contextualizado a la ruralidad\n[ ] Instrucciones comprensibles\n[ ] Adaptado a los grados\n[ ] Bajo consumo de datos\n[ ] Alternativa offline\n[ ] Actividad participativa\n[ ] Evidencia observable\n[ ] Respeta privacidad\n[ ] Fuentes revisadas`],['Rúbrica del producto final',`Puntúe de 1 a 3:\nPERTINENCIA: 3 objetivo claro; 2 parcial; 1 sin relación.\nCONTEXTO: 3 adaptado a ruralidad; 2 parcialmente; 1 no considera entorno.\nTAC: 3 integrada didácticamente; 2 parcial; 1 decorativa.\nACCESIBILIDAD: 3 alternativa offline viable; 2 parcial; 1 ninguna.\nEVALUACIÓN: 3 evidencias y criterios; 2 incompletos; 1 ausentes.\nTOTAL: /15\nFORTALEZAS:\nMEJORAS:`],['Ficha de autodiagnóstico',`HERRAMIENTAS QUE CONOZCO:\nFRECUENCIA DE USO:\nCONFIANZA DIGITAL:\nDISPOSITIVOS DISPONIBLES:\nCONDICIONES DE CONEXIÓN:\nFORTALEZAS:\nDIFICULTADES:\nMETA PERSONAL:\nAPOYO QUE NECESITO:`],['Guion audiovisual TAC',`TEMA:\nOBJETIVO:\nRECURSO (IMAGEN, AUDIO O VIDEO):\nANTES: pregunta de apertura\nDURANTE: consignas de observación\nDESPUÉS: producto observable\nEVALUACIÓN:\nALTERNATIVA SIN CONEXIÓN:`],['Organizador de archivos',`CARPETA: Recursos_Docentes\n01_Planeaciones\n02_Guias\n03_Presentaciones\n04_Imagenes\n05_Evaluaciones\n06_Evidencias\n07_Respaldos\nNOMBRES RECOMENDADOS: Asignatura_Grado_Tema.ext\nCOMPROBAR APERTURA SIN INTERNET Y PROTECCIÓN DE DATOS.`]];
 let session={user:null,csrf:''},overview=null,current=0;
 const $=id=>document.getElementById(id),esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-async function api(action,body=null,upload=false){let options={credentials:'same-origin',headers:{'X-CSRF-Token':session.csrf}};if(body!==null){options.method='POST';if(upload)options.body=body;else{options.headers['Content-Type']='application/json';options.body=JSON.stringify(body)}}const res=await fetch('api.php?action='+encodeURIComponent(action),options);let data=await res.json().catch(()=>({error:'Respuesta inesperada del servidor'}));if(data&&typeof data==='object'&&data.csrf)session.csrf=data.csrf;if(!res.ok){if(res.status===401){session={user:null,csrf:''};nav()}throw Error(data.error||'Error HTTP '+res.status)}return data}
+async function api(action,body=null,upload=false){
+  const send=async()=>{
+    const options={credentials:'same-origin',headers:{'X-CSRF-Token':session.csrf}};
+    if(body!==null){
+      options.method='POST';
+      if(upload)options.body=body;
+      else{options.headers['Content-Type']='application/json';options.body=JSON.stringify(body)}
+    }
+    const response=await fetch('api.php?action='+encodeURIComponent(action),options);
+    const data=await response.json().catch(()=>({error:'Respuesta inesperada del servidor'}));
+    if(data&&typeof data==='object'&&data.csrf)session.csrf=data.csrf;
+    return{response,data};
+  };
+  let{response,data}=await send();
+  if(response.status===403&&body!==null&&data?.error==='Token de protección no válido'){
+    const sync=await fetch('api.php?action=session',{credentials:'same-origin',cache:'no-store'});
+    const fresh=await sync.json().catch(()=>({error:'No se pudo renovar el token de protección'}));
+    if(!sync.ok||!fresh?.csrf)throw Error(fresh?.error||'No se pudo renovar el token de protección');
+    session=fresh;
+    ({response,data}=await send());
+  }
+  if(!response.ok){if(response.status===401){session={user:null,csrf:''};nav()}throw Error(data.error||'Error HTTP '+response.status)}
+  return data;
+}
 function show(html){$('app').innerHTML=html;window.scrollTo(0,0)}function progress(x){return `<div class="progress"><span style="width:${Math.min(100,Math.max(0,x))}%"></span></div>`}function msg(e){alert(e.message||String(e))}
 function downloadText(name,text){let url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));let a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}
 function busy(el,txt){if(!el)return;el.dataset.t=el.textContent;el.disabled=true;el.textContent=txt||'Procesando…'}function unbusy(el){if(!el)return;el.disabled=false;el.textContent=el.dataset.t??el.textContent}
