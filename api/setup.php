@@ -66,7 +66,14 @@ if ($setupToken === '') {
     http_response_code(500);
     exit('Falta configurar temporalmente la variable de entorno SETUP_TOKEN en el proyecto.');
 }
-$db = db_read();
+try {
+    $db = db_read();
+} catch (Throwable $e) {
+    error_log('RuralTech setup read: ' . $e->getMessage());
+    http_response_code(500);
+    header('Content-Type: text/plain; charset=utf-8');
+    exit('No se pudo acceder al almacenamiento. Verifique que BLOB_READ_WRITE_TOKEN esté configurado y tenga acceso al almacén de RuralTech.');
+}
 $admins = array_filter($db['users'], fn($u) => ($u['role'] ?? '') === 'admin');
 if (count($admins) > 1) {
     http_response_code(409);
