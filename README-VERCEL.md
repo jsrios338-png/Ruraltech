@@ -6,8 +6,8 @@ en **Vercel Blob** (el sistema de archivos de Vercel es de solo lectura).
 ## Qué incluye
 
 - **Dos roles**: `administrador` y `docente`. Las cuentas estudiantiles existentes se convierten en docentes al leer los datos.
-  - El administrador gestiona usuarios, recursos, respaldos, restauración, auditoría y valoraciones.
-  - Los docentes siguen su propia ruta, registran actividades y consultan los recursos del aula.
+  - El administrador gestiona usuarios, publica materiales y videos, asigna actividades a todos los docentes, revisa evidencias, respaldos, auditoría y valoraciones.
+  - Los docentes siguen su propia ruta, consultan su progreso, entregan evidencias de capacitación, descargan materiales, reproducen videos y participan en la comunidad.
 - Todas las funciones del paquete original: progreso por módulos, cuestionarios, comunidad,
   valoración de 10 criterios, banco de recursos, producto final, **respaldo TAR y restauración
   desde la interfaz** (con copia previa automática), log de auditoría visible.
@@ -21,7 +21,7 @@ en **Vercel Blob** (el sistema de archivos de Vercel es de solo lectura).
 
 | Componente | Dónde | Nota |
 |---|---|---|
-| `index.html` | estático | SPA completa (frontend) |
+| `index.html`, `features.js` | estático | SPA completa (frontend y flujos de materiales/actividades) |
 | `api/index.php` | función PHP | toda la API (`/api.php?action=…`) |
 | `api/setup.php` | función PHP | creación inicial o recuperación del administrador |
 | `api/_lib.php` | función (núcleo) | cliente Blob + capa de datos + sesiones |
@@ -35,7 +35,8 @@ en **Vercel Blob** (el sistema de archivos de Vercel es de solo lectura).
 - Las **subidas no pasan por la función** (Vercel limita el cuerpo a 4,5 MB): el servidor emite un
   *client token* firmado (HMAC-SHA256) y el navegador sube el archivo **directamente a Vercel Blob**
   con barra de progreso; luego el servidor valida el contenido real (finfo, tipo peligroso,
-  imagen vs extensión) y lo registra en la base de datos. Límite por archivo: **15 MB**.
+  imagen vs extensión) y lo registra en la base de datos. Límite: **15 MB** por documento/evidencia
+  y **100 MB** por video MP4/WebM publicado por administración.
 
 ## Variables de entorno del proyecto (Vercel)
 
@@ -71,9 +72,11 @@ docentes accedan libremente.
 - Login limitado: 6 intentos fallidos por cuenta cada 10 minutos (persistente).
 - Respaldo: panel de administración → “Descargar respaldo integral” (TAR con data.json + adjuntos).
 - Restauración: panel de administración → “Restaurar respaldo” (TAR ≤ 4 MB, ≤ 20 adjuntos;
-  se guarda copia previa automática en `backups/`).
+  se guarda copia previa automática en `backups/`). El límite de recepción de Vercel aplica
+  también a videos; para respaldos que incluyan videos grandes, conserva además el Blob original.
 - Auditoría: panel “📜 Auditoría” (últimos 100 eventos).
-- Extensiones aceptadas: pdf, doc, docx, odt, jpg, jpeg, png, webp, txt, rtf, ppt, pptx, xls, xlsx.
+- Extensiones de documentos/evidencias: pdf, doc, docx, odt, jpg, jpeg, png, webp, txt, rtf, ppt, pptx, xls, xlsx.
+- Videos publicados por administración: mp4 y webm, máximo 100 MB.
 
 ## Desarrollo local
 

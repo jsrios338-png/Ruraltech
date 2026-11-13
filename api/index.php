@@ -205,14 +205,75 @@ try {
     case 'resource_list':
         require_user();
         $db = db_read();
-        send(array_values($db['resources']));
+        $resources = array_values($db['resources']);
+        usort($resources, fn($a, $b) => strcmp($b['created'] ?? '', $a['created'] ?? ''));
+        send($resources);
+
+    case 'activity_list':
+        $u = require_user();
+        $db = db_read();
+        $activities = [];
+        foreach ($db['activities'] as $activity) {
+            $item = $activity;
+            $item['submissions'] = [];
+            foreach (($db['activity_submissions'] ?? []) as $submission) {
+                if (($submission['activity_id'] ?? '') !== $activity['id']) continue;
+                $owner = $db['users'][$submission['user_id']] ?? null;
+                if (!$owner || ($u['role'] !== 'admin' && $owner['id'] !== $u['id'])) continue;
+                $item['submissions'][] = $u['role'] === 'admin'
+                    ? ['id' => $submission['id'], 'created' => $submission['created'],
+                       'user' => safe_user($owner), 'files' => $submission['files']]
+                    : ['id' => $submission['id'], 'created' => $submission['created'],
+                       'files' => $submission['files']];
+            }
+            if ($u['role'] !== 'admin' && !($activity['active'] ?? true) && !$item['submissions']) continue;
+            $activities[] = $item;
+        }
+        usort($activities, fn($a, $b) => strcmp($b['created'] ?? '', $a['created'] ?? ''));
+        send($activities);
+
+    case 'activity_create':
+        $admin = require_admin();
+        if ($method !== 'POST') fail('Método inválido', 405);
+        $b = json_input();
+        $title = clean_text($b['title'] ?? '', 150);
+        $description = clean_text($b['description'] ?? '', 6000);
+        $due = clean_text($b['due'] ?? '', 10);
+        if ($title === '' || $description === '') fail('Título e instrucciones son obligatorios');
+        if ($due !== '') {
+            $date = DateTimeImmutable::createFromFormat('!Y-m-d', $due);
+            if (!$date || $date->format('Y-m-d') !== $due) fail('Fecha límite no válida');
+        }
+        $activity = [
+            'id' => id(), 'title' => $title, 'description' => $description,
+            'due' => $due, 'active' => true, 'created' => now(), 'created_by' => $admin['id'],
+        ];
+        db_update(function (&$db) use ($activity, $admin) {
+            $db['activities'][$activity['id']] = $activity;
+            record_audit($db, 'activity_published', $admin['id'], $activity['id']);
+        });
+        send($activity, 201);
+
+    case 'activity_archive':
+        $admin = require_admin();
+        if ($method !== 'POST') fail('Método inválido', 405);
+        $b = json_input();
+        $activityId = clean_text($b['id'] ?? '', 60);
+        db_update(function (&$db) use ($activityId, $admin) {
+            if (!isset($db['activities'][$activityId])) fail('Actividad no encontrada', 404);
+            $db['activities'][$activityId]['active'] = false;
+            record_audit($db, 'activity_archived', $admin['id'], $activityId);
+        });
+        send(['ok' => true]);
 
     /* ---- subidas: preparar (client token) + confirmar ---- */
     case 'upload_prepare': {
         $u = require_user();
         $b = json_input();
-        $kind = ($b['kind'] ?? '') === 'resource' ? 'resource' : 'submission';
+        $kind = (string) ($b['kind'] ?? 'submission');
+        if (!in_array($kind, ['resource', 'submission', 'activity_evidence'], true)) fail('Tipo de archivo no válido');
         if ($kind === 'resource' && $u['role'] !== 'admin') fail('Acceso reservado al administrador', 403);
+        if ($kind === 'activity_evidence' && $u['role'] !== 'teacher') fail('Solo los docentes pueden entregar evidencias', 403);
         $name = clean_text($b['name'] ?? '', 150);
         $size = (int) ($b['size'] ?? 0);
         $module = $kind === 'resource' ? clean_text((string) ($b['module'] ?? 'all'), 8) : (string) (int) ($b['module'] ?? -1);
@@ -220,10 +281,17 @@ try {
         $original = preg_replace('/[\x00-\x1f\x7f]/u', '', $original) ?: 'archivo';
         $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
         if (!in_array($ext, EXTENSIONS, true)) fail('Formato de archivo no permitido');
-        if ($size < 1 || $size > MAX_UPLOAD) fail('Archivo vacío o mayor de 15 MB');
+        $sizeLimit = $kind === 'resource' && in_array($ext, ['mp4', 'webm'], true)
+            ? MAX_VIDEO_UPLOAD : MAX_UPLOAD;
+        if ($size < 1 || $size > $sizeLimit) fail($sizeLimit === MAX_VIDEO_UPLOAD
+            ? 'El video está vacío o supera los 100 MB' : 'Archivo vacío o mayor de 15 MB');
         if ($kind === 'resource') {
             $title = clean_text($b['title'] ?? '', 150);
             if ($title === '' || !($module === 'all' || in_array($module, ['0','1','2','3','4','5'], true))) fail('Datos inválidos');
+        } elseif ($kind === 'activity_evidence') {
+            $activityId = clean_text($b['activity_id'] ?? '', 60);
+            $activity = db_read()['activities'][$activityId] ?? null;
+            if (!$activity || !($activity['active'] ?? true)) fail('La actividad ya no está disponible', 404);
         } elseif ((int) $module < 0 || (int) $module > 6) {
             fail('Módulo inválido');
         }
@@ -232,7 +300,7 @@ try {
         $ctype = MIME_BY_EXT[$ext];
         $token = blob()->clientToken($pathname, $size, [$ctype], time() + 900);
         send(['fid' => $fid, 'pathname' => $pathname, 'kind' => $kind, 'module' => $module,
-              'contentType' => $ctype, 'token' => $token, 'maxSize' => MAX_UPLOAD, 'storeId' => blob()->storeId(),
+              'contentType' => $ctype, 'token' => $token, 'maxSize' => $sizeLimit, 'storeId' => blob()->storeId(),
               'uploadUrl' => 'https://vercel.com/api/blob/?pathname=' . $pathname]);
     }
 
@@ -241,26 +309,40 @@ try {
         $b = json_input();
         $fid = clean_text($b['fid'] ?? '', 60);
         if (!preg_match('/^[a-f0-9]{32}$/', $fid)) fail('Identificador de archivo inválido');
-        $kind = ($b['kind'] ?? '') === 'resource' ? 'resource' : 'submission';
+        $kind = (string) ($b['kind'] ?? 'submission');
+        if (!in_array($kind, ['resource', 'submission', 'activity_evidence'], true)) fail('Tipo de archivo no válido');
         if ($kind === 'resource' && $u['role'] !== 'admin') fail('Acceso reservado al administrador', 403);
+        if ($kind === 'activity_evidence' && $u['role'] !== 'teacher') fail('Solo los docentes pueden entregar evidencias', 403);
         $pathname = 'files/' . $fid . '.bin';
         $bc = blob();
         if (!$bc->head($pathname, $realSize, $realCtype)) fail('No se recibió el archivo. Inténtelo de nuevo.', 400);
-        if ($realSize < 1 || $realSize > MAX_UPLOAD) { $bc->delete([$pathname]); fail('Archivo vacío o mayor de 15 MB'); }
-        // validar contenido real con finfo (equivalente a file_record del original)
-        $prefix = $bc->readPrefix($pathname, 1024);
-        $mime = (new finfo(FILEINFO_MIME_TYPE))->buffer($prefix) ?: 'application/octet-stream';
-        if (in_array($mime, DANGER_MIME, true)) { $bc->delete([$pathname]); fail('Contenido no admitido'); }
         $original = basename(str_replace('\\', '/', clean_text($b['name'] ?? 'archivo', 150)));
         $original = preg_replace('/[\x00-\x1f\x7f]/u', '', $original) ?: 'archivo';
         $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
         if (!in_array($ext, EXTENSIONS, true)) { $bc->delete([$pathname]); fail('Formato de archivo no permitido'); }
+        $sizeLimit = $kind === 'resource' && in_array($ext, ['mp4', 'webm'], true)
+            ? MAX_VIDEO_UPLOAD : MAX_UPLOAD;
+        if ($realSize < 1 || $realSize > $sizeLimit) {
+            $bc->delete([$pathname]);
+            fail($sizeLimit === MAX_VIDEO_UPLOAD ? 'El video supera los 100 MB' : 'Archivo mayor de 15 MB');
+        }
+        // validar contenido real con finfo (equivalente a file_record del original)
+        $prefix = $bc->readPrefix($pathname, 1024);
+        $mime = (new finfo(FILEINFO_MIME_TYPE))->buffer($prefix) ?: 'application/octet-stream';
+        if (in_array($mime, DANGER_MIME, true)) { $bc->delete([$pathname]); fail('Contenido no admitido'); }
+        if (in_array($ext, ['mp4', 'webm'], true)) {
+            if ($kind !== 'resource' || !in_array($mime, [MIME_BY_EXT[$ext], 'application/octet-stream'], true)) {
+                $bc->delete([$pathname]);
+                fail('Video no válido; use MP4 o WebM');
+            }
+            $mime = MIME_BY_EXT[$ext];
+        }
         if (in_array($ext, ['jpg','jpeg','png','webp'], true) && !str_starts_with($mime, 'image/')) {
             $bc->delete([$pathname]);
             fail('Imagen inválida');
         }
         $file = ['id' => $fid, 'name' => substr($original, 0, 150), 'stored' => $pathname, 'size' => $realSize,
-                 'mime' => $mime, 'owner' => $u['id'], 'kind' => $kind, 'created' => now()];
+                 'mime' => $mime, 'owner' => $u['id'], 'kind' => $kind === 'resource' ? 'resource' : 'submission', 'created' => now()];
         if ($kind === 'resource') {
             $title = clean_text($b['title'] ?? '', 150);
             $desc = clean_text($b['description'] ?? '', 1500);
@@ -272,6 +354,20 @@ try {
                 record_audit($db, 'resource_upload', $u['id'], $r['id']);
             });
             send($r, 201);
+        }
+        if ($kind === 'activity_evidence') {
+            $activityId = clean_text($b['activity_id'] ?? '', 60);
+            $submission = ['id' => id(), 'activity_id' => $activityId, 'user_id' => $u['id'],
+                           'files' => [$file], 'created' => now()];
+            db_update(function (&$db) use ($submission, $u) {
+                if (!isset($db['activities'][$submission['activity_id']])
+                    || !($db['activities'][$submission['activity_id']]['active'] ?? true)) {
+                    fail('La actividad ya no está disponible', 404);
+                }
+                $db['activity_submissions'][$submission['id']] = $submission;
+                record_audit($db, 'activity_evidence_submitted', $u['id'], $submission['activity_id']);
+            });
+            send($submission, 201);
         }
         $i = (int) ($b['module'] ?? -1);
         if ($i < 0 || $i > 6) fail('Módulo inválido');
@@ -309,16 +405,52 @@ try {
         if (!($u['role'] === 'admin' || $isResource || $isOwner)) {
             fail('Acceso denegado', 403);
         }
+        $inline = ($_GET['inline'] ?? '') === '1';
+        if ($inline && !in_array(strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)), ['mp4', 'webm'], true)) {
+            fail('Vista previa no disponible para este archivo', 400);
+        }
         try {
             $bc = blob();
             if (!$bc->head($file['stored'], $size, $ct)) fail('Archivo extraviado', 404);
             $fname = preg_replace('/[^A-Za-z0-9._-]/', '_', $file['name']);
-            header('Content-Type: application/octet-stream');
-            header('Content-Disposition: attachment; filename="' . $fname . '"');
-            header('Content-Length: ' . $size);
+            header('Content-Type: ' . ($inline ? $file['mime'] : 'application/octet-stream'));
+            header('Content-Disposition: ' . ($inline ? 'inline' : 'attachment') . '; filename="' . $fname . '"');
+            $range = null;
+            if ($inline) {
+                header('Accept-Ranges: bytes');
+                $requestedRange = (string) ($_SERVER['HTTP_RANGE'] ?? '');
+                if ($requestedRange !== '') {
+                    if (!preg_match('/^bytes=(\d*)-(\d*)$/D', $requestedRange, $matches)
+                        || ($matches[1] === '' && $matches[2] === '')) {
+                        http_response_code(416);
+                        header('Content-Range: bytes */' . $size);
+                        exit;
+                    }
+                    if ($matches[1] === '') {
+                        $suffixLength = (int) $matches[2];
+                        if ($suffixLength < 1) {
+                            http_response_code(416);
+                            header('Content-Range: bytes */' . $size);
+                            exit;
+                        }
+                        $start = max(0, $size - $suffixLength);
+                        $end = $size - 1;
+                    } else {
+                        $start = (int) $matches[1];
+                        $end = $matches[2] === '' ? $size - 1 : min((int) $matches[2], $size - 1);
+                    }
+                    if ($start >= $size || $end < $start) {
+                        http_response_code(416);
+                        header('Content-Range: bytes */' . $size);
+                        exit;
+                    }
+                    $range = $start . '-' . $end;
+                }
+            }
+            if ($range === null) header('Content-Length: ' . $size);
             header('X-Content-Type-Options: nosniff');
             header('Cache-Control: private, no-store');
-            $bc->streamTo($file['stored'], $size);
+            $bc->streamTo($file['stored'], $size, $range);
         } catch (Throwable $e) {
             if (!headers_sent()) fail('Archivo extraviado', 404);
             exit;

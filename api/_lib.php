@@ -136,22 +136,39 @@ final class BlobClient
     }
 
     /** Transmite el objeto al cliente HTTP (descarga autorizada). */
-    public function streamTo(string $pathname, int $size): void
+    public function streamTo(string $pathname, int $size, ?string $range = null): void
     {
         $ch = curl_init($this->host . '/' . $pathname . '?cache=0');
-        curl_setopt_array($ch, [
+        $responseHeaders = [];
+        $responseStatus = 0;
+        $options = [
             CURLOPT_HTTPHEADER => $this->controlHeaders(),
+            CURLOPT_HEADERFUNCTION => function ($ch, $header) use (&$responseHeaders, &$responseStatus, $range) {
+                if (preg_match('/^HTTP\/\S+\s+(\d+)/i', $header, $match)) {
+                    $responseStatus = (int) $match[1];
+                    $responseHeaders = [];
+                } elseif (preg_match('/^([^:]+):\s*(.*)$/', trim($header), $match)) {
+                    $responseHeaders[strtolower(trim($match[1]))] = trim($match[2]);
+                } elseif (trim($header) === '' && $range !== null && $responseStatus === 206) {
+                    http_response_code(206);
+                    if (isset($responseHeaders['content-range'])) header('Content-Range: ' . $responseHeaders['content-range']);
+                    if (isset($responseHeaders['content-length'])) header('Content-Length: ' . $responseHeaders['content-length']);
+                }
+                return strlen($header);
+            },
             CURLOPT_WRITEFUNCTION => function ($ch, $chunk) {
                 echo $chunk;
                 if (function_exists('flush')) @flush();
                 return strlen($chunk);
             },
             CURLOPT_TIMEOUT => 55,
-        ]);
+        ];
+        if ($range !== null) $options[CURLOPT_RANGE] = $range;
+        curl_setopt_array($ch, $options);
         curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);
-        if ($status !== 200) throw new RuntimeException('No se pudo transmitir el archivo (' . $status . ')');
+        if ($status !== 200 && $status !== 206) throw new RuntimeException('No se pudo transmitir el archivo (' . $status . ')');
         unset($size);
     }
 
@@ -204,7 +221,8 @@ final class BlobConflict extends RuntimeException {}
 
 const DB_KEY = 'data/data.json';
 const MAX_UPLOAD = 15728640;
-const EXTENSIONS = ['pdf','doc','docx','odt','jpg','jpeg','png','webp','txt','rtf','ppt','pptx','xls','xlsx'];
+const MAX_VIDEO_UPLOAD = 104857600;
+const EXTENSIONS = ['pdf','doc','docx','odt','jpg','jpeg','png','webp','txt','rtf','ppt','pptx','xls','xlsx','mp4','webm'];
 const MIME_BY_EXT = [
     'pdf' => 'application/pdf',
     'doc' => 'application/msword',
@@ -216,6 +234,8 @@ const MIME_BY_EXT = [
     'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'xls' => 'application/vnd.ms-excel',
     'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'mp4' => 'video/mp4',
+    'webm' => 'video/webm',
 ];
 const DANGER_MIME = ['text/html','application/x-httpd-php','application/x-php','image/svg+xml'];
 const QUIZ_KEYS = [[1,0,0],[1,0,1],[0,0,0],[0,0,0],[0,0,0],[0,0,0]];
@@ -225,7 +245,8 @@ const SESSION_REFRESH = 21600;  // renovar cuando quede menos de la mitad
 function initial_db(): array
 {
     return ['users'=>[], 'modules'=>[], 'submissions'=>[], 'resources'=>[], 'community'=>[],
-            'evaluations'=>[], 'audit'=>[], 'sessions'=>[], 'throttle'=>[], 'meta'=>['created'=>now()]];
+            'activities'=>[], 'activity_submissions'=>[], 'evaluations'=>[], 'audit'=>[],
+            'sessions'=>[], 'throttle'=>[], 'meta'=>['created'=>now()]];
 }
 
 /* ---------- cliente singleton ---------- */
@@ -340,6 +361,7 @@ function all_files(array $db): array
     $files = [];
     foreach ($db['submissions'] as $s) foreach (($s['files'] ?? []) as $f) $files[$f['id']] = $f;
     foreach ($db['resources'] as $r) if (isset($r['file'])) $files[$r['file']['id']] = $r['file'];
+    foreach (($db['activity_submissions'] ?? []) as $s) foreach (($s['files'] ?? []) as $f) $files[$f['id']] = $f;
     return $files;
 }
 function progress_for(array $db, string $uid): array
