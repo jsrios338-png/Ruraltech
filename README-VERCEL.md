@@ -5,11 +5,9 @@ en **Vercel Blob** (el sistema de archivos de Vercel es de solo lectura).
 
 ## Qué incluye
 
-- **Tres roles**: `administrador`, `docente` y `estudiante`.
+- **Dos roles**: `administrador` y `docente`. Las cuentas estudiantiles existentes se convierten en docentes al leer los datos.
   - El administrador gestiona usuarios, recursos, respaldos, restauración, auditoría y valoraciones.
-  - Los docentes siguen su propia ruta y **supervisan el progreso de los estudiantes** (página “Estudiantes”).
-  - Los estudiantes participan de todo el aula: módulos, microlecciones, cuestionarios, actividades,
-    evidencias, comunidad, producto final y valoración (sin panel de administración).
+  - Los docentes siguen su propia ruta, registran actividades y consultan los recursos del aula.
 - Todas las funciones del paquete original: progreso por módulos, cuestionarios, comunidad,
   valoración de 10 criterios, banco de recursos, producto final, **respaldo TAR y restauración
   desde la interfaz** (con copia previa automática), log de auditoría visible.
@@ -25,7 +23,7 @@ en **Vercel Blob** (el sistema de archivos de Vercel es de solo lectura).
 |---|---|---|
 | `index.html` | estático | SPA completa (frontend) |
 | `api/index.php` | función PHP | toda la API (`/api.php?action=…`) |
-| `api/setup.php` | función PHP | instalador del primer administrador |
+| `api/setup.php` | función PHP | creación inicial o recuperación del administrador |
 | `api/_lib.php` | función (núcleo) | cliente Blob + capa de datos + sesiones |
 | Vercel Blob | almacén privado | `data/data.json` (base de datos), `files/*.bin` (adjuntos), `backups/*.json` (copias previas) |
 | vercel.json | configuración | runtime `vercel-php@0.7.4` (PHP 8.3) y reescrituras `/api.php` y `/setup.php` |
@@ -45,7 +43,7 @@ en **Vercel Blob** (el sistema de archivos de Vercel es de solo lectura).
 |---|---|
 | `BLOB_READ_WRITE_TOKEN` | la conecta `vercel storage connect` (ya configurada) |
 | `BLOB_STORE_ID` | identificador del almacén (ya configurada) |
-| `SETUP_TOKEN` | código del instalador; **elimínela después de crear el administrador** |
+| `SETUP_TOKEN` | código temporal para crear o recuperar el único administrador; **elimínela después de usarlo** |
 
 ## Despliegue (CLI)
 
@@ -59,14 +57,14 @@ vercel deploy --prod                     # despliegue a producción
 ## Instalación inicial
 
 1. `vercel env add SETUP_TOKEN` (valor secreto, p. ej. 32 caracteres aleatorios; aplicar a producción).
-2. Abra `https://<dominio>/setup.php`, escriba el código y los datos del administrador.
-3. **Elimine la variable `SETUP_TOKEN`** para desactivar el instalador.
+2. Abra `https://<dominio>/setup.php`, escriba el código y los datos del administrador. Si ya hay un administrador, el formulario actualiza su correo, nombre y contraseña, conservando el identificador y los datos de la cuenta.
+3. **Elimine la variable `SETUP_TOKEN`** inmediatamente después de usarla. Para una recuperación, cree un token temporal nuevo, despliegue la variable y elimínela tras completar el formulario.
 
 ## Desactivar la protección de vista del despliegue
 
 Si el dominio pide iniciar sesión con cuenta de Vercel (Deployment Protection → Vercel
 Authentication), desactívelo en *Project → Settings → Deployment Protection* para que
-docentes y estudiantes accedan libremente.
+docentes accedan libremente.
 
 ## Pruebas y operación
 

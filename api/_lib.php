@@ -239,7 +239,17 @@ function blob(): BlobClient
 function db_parse(?string $raw): array
 {
     $v = json_decode((string) $raw, true);
-    return is_array($v) ? array_replace(initial_db(), $v) : initial_db();
+    if (!is_array($v)) return initial_db();
+    $db = array_replace(initial_db(), $v);
+    if (isset($db['users']) && is_array($db['users'])) {
+        foreach ($db['users'] as &$user) {
+            if (is_array($user) && ($user['role'] ?? '') === 'student') {
+                $user['role'] = 'teacher';
+            }
+        }
+        unset($user);
+    }
+    return $db;
 }
 
 /** Lectura memoizada dentro de la misma petición. */

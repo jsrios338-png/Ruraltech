@@ -1,7 +1,7 @@
 <?php
 /**
  * RuralTech — API única para Vercel (runtime vercel-php).
- * Puerto fiel del api.php original + rol estudiante + subidas directas
+ * Puerto fiel del api.php original + subidas directas
  * al navegador (client token de Vercel Blob) + restauración desde la interfaz.
  */
 declare(strict_types=1);
@@ -39,7 +39,8 @@ try {
         throttle_check($db, $hashKey);
         $found = null;
         foreach ($db['users'] as $v) if ($v['email'] === $email) { $found = $v; break; }
-        if (!$found || !password_verify($password, $found['password'])) {
+        if (!$found || !in_array($found['role'] ?? '', ['admin', 'teacher'], true)
+            || !password_verify($password, $found['password'])) {
             db_update(function (&$db) use ($hashKey) { throttle_fail($db, $hashKey); });
             fail('Credenciales incorrectas', 401);
         }
@@ -75,17 +76,6 @@ try {
         }
         send($rows);
 
-    case 'students':
-        $u = require_user();
-        if (!in_array($u['role'], ['admin', 'teacher'], true)) fail('Acceso reservado a docentes', 403);
-        $db = db_read();
-        $rows = [];
-        foreach ($db['users'] as $v) {
-            if ($v['role'] !== 'student') continue;
-            $rows[] = safe_user($v) + ['progress' => progress_for($db, $v['id'])];
-        }
-        send($rows);
-
     case 'create_user':
         $admin = require_admin();
         $b = json_input();
@@ -93,7 +83,8 @@ try {
         $email = email_norm(clean_text($b['email'] ?? '', 150));
         $password = (string) ($b['password'] ?? '');
         $r = (string) ($b['role'] ?? 'teacher');
-        $role = in_array($r, ['admin', 'teacher', 'student'], true) ? $r : 'teacher';
+        if (!in_array($r, ['admin', 'teacher'], true)) fail('Rol no válido');
+        $role = $r;
         $site = clean_text($b['site'] ?? '', 100);
         if (!$name || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 12 || strlen($password) > 200) {
             fail('Nombre, correo y contraseña de al menos 12 caracteres son obligatorios');
@@ -149,8 +140,7 @@ try {
             if ($ask !== $u['id']) {
                 $tUser = $db['users'][$ask] ?? null;
                 if (!$tUser) fail('Usuario inexistente', 404);
-                if ($u['role'] === 'admin'
-                    || ($u['role'] === 'teacher' && $tUser['role'] === 'student')) {
+                if ($u['role'] === 'admin') {
                     $target = $ask;
                 } else {
                     fail('No está autorizado para consultar ese progreso', 403);
@@ -316,10 +306,7 @@ try {
         if (!$file) fail('Archivo no encontrado', 404);
         $isOwner = ($file['owner'] ?? '') === $u['id'];
         $isResource = ($file['kind'] ?? '') === 'resource';
-        // docentes pueden descargar evidencias de estudiantes (seguimiento)
-        $ownerRole = $db['users'][$file['owner']]['role'] ?? '';
-        $teacherOfStudent = $u['role'] === 'teacher' && $ownerRole === 'student';
-        if (!($u['role'] === 'admin' || $isResource || $isOwner || $teacherOfStudent)) {
+        if (!($u['role'] === 'admin' || $isResource || $isOwner)) {
             fail('Acceso denegado', 403);
         }
         try {
