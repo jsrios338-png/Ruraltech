@@ -54,7 +54,7 @@
       const completion = overview.progress;
       show(`<section class="hero">
         <p class="eyebrow">${isAdmin ? 'CENTRO DE CONTROL' : 'TU ESPACIO DE APRENDIZAJE'}</p>
-        <h1>${isAdmin ? 'Acompañar también es enseñar.' : `Qué bueno verte, ${esc(session.user?.name?.split(' ')[0] || 'docente')}.`}</h1>
+        <h1>${isAdmin ? 'Acompañar también es enseñar.' : 'Bienvenido Docente'}</h1>
         <p>${isAdmin
           ? 'Publica recursos, propone nuevas actividades y acompaña el crecimiento de cada docente.'
           : 'Avanza a tu ritmo, explora ideas para el aula y comparte lo que vas aprendiendo.'}</p>
