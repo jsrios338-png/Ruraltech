@@ -130,7 +130,7 @@
           ${teachers.map(user => `<tr class="urow" data-search="${esc(`${user.name} ${user.site} ${user.email}`.toLowerCase())}">
             <td>${esc(user.name)}</td><td>${esc(user.site || '—')}</td><td>${esc(user.email)}</td>
             <td>${user.progress.percent}%</td><td>${user.progress.completed}/6</td>
-            <td><button class="btn sec" onclick="adminDetail('${esc(user.id)}')">Ver detalle</button></td>
+            <td><button class="btn sec" onclick="adminDetail('${esc(user.id)}')">Ver detalle</button> <button class="btn sec" onclick="adminEdit('${esc(user.id)}')">Editar</button> <button class="btn danger" onclick="adminDeleteUser('${esc(user.id)}')">Eliminar</button></td>
           </tr>`).join('') || '<tr><td colspan="6">Todavía no hay docentes registrados.</td></tr>'}
         </tbody></table></div>
       </section>
@@ -303,6 +303,53 @@
     } finally {
       unbusy(button);
       hideBar(`activityBar-${id}`);
+    }
+  };
+
+  window.adminEdit = function (id) {
+    const user = (window.adminUsers || []).find(item => item.id === id);
+    if (!user) { msg(Error('Usuario no encontrado')); return; }
+    show(`<button class="btn sec" onclick="admin()">← Administración</button><h1>Editar cuenta</h1>
+      <div class="panel">
+        <p class="muted small">${esc(ROLE_ES[user.role] || user.role)} · ${esc(user.email)}</p>
+        <label for="editName">Nombre completo</label><input id="editName" maxlength="80" value="${esc(user.name)}">
+        <label for="editEmail">Correo</label><input id="editEmail" type="email" value="${esc(user.email)}">
+        <label for="editSite">Sede educativa</label><input id="editSite" maxlength="100" value="${esc(user.site || '')}">
+        <label for="editRole">Rol</label><select id="editRole"><option value="teacher"${user.role === 'teacher' ? ' selected' : ''}>Docente</option><option value="admin"${user.role === 'admin' ? ' selected' : ''}>Administrador</option></select>
+        <label for="editPassword">Nueva contraseña (opcional, mínimo 12 caracteres)</label><input id="editPassword" type="password" autocomplete="new-password">
+        <button class="btn" onclick="adminSaveUser('${esc(user.id)}', this)">Guardar cambios</button>
+      </div>`);
+  };
+
+  window.adminSaveUser = async function (id, button) {
+    busy(button, 'Guardando…');
+    try {
+      await api('update_user', {
+        user_id: id,
+        name: $('editName').value,
+        email: $('editEmail').value.trim(),
+        site: $('editSite').value,
+        role: $('editRole').value,
+        password: $('editPassword').value,
+      });
+      alert('Cuenta actualizada.');
+      admin();
+    } catch (error) {
+      msg(error);
+    } finally {
+      unbusy(button);
+    }
+  };
+
+  window.adminDeleteUser = async function (id) {
+    const user = (window.adminUsers || []).find(item => item.id === id);
+    if (!confirm(`¿Eliminar la cuenta de ${user ? user.name : 'este docente'}? Se borrarán su progreso, entregas y archivos, y no se puede deshacer.`)) return;
+    try {
+      await api('delete_user', { user_id: id });
+      alert('Cuenta eliminada.');
+      admin();
+    } catch (error) {
+      msg(error);
     }
   };
 })();

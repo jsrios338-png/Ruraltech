@@ -115,6 +115,82 @@ try {
         });
         send(['ok' => true]);
 
+    case 'update_user':
+        $admin = require_admin();
+        $b = json_input();
+        $uid = clean_text($b['user_id'] ?? '', 60);
+        $name = clean_text($b['name'] ?? '', 80);
+        $email = email_norm(clean_text($b['email'] ?? '', 150));
+        $role = (string) ($b['role'] ?? 'teacher');
+        if (!in_array($role, ['admin', 'teacher'], true)) fail('Rol no válido');
+        $site = clean_text($b['site'] ?? '', 100);
+        $password = (string) ($b['password'] ?? '');
+        if (!$name || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            fail('Nombre y correo válidos son obligatorios');
+        }
+        if ($password !== '' && (strlen($password) < 12 || strlen($password) > 200)) {
+            fail('La nueva contraseña debe tener al menos 12 caracteres');
+        }
+        db_update(function (&$db) use ($uid, $name, $email, $role, $site, $password, $admin) {
+            if (!isset($db['users'][$uid])) fail('Usuario no existe', 404);
+            $user = $db['users'][$uid];
+            // no dejar la plataforma sin administradores
+            if (($user['role'] ?? '') === 'admin' && $role !== 'admin') {
+                $admins = array_filter($db['users'], fn($u) => ($u['role'] ?? '') === 'admin');
+                if (count($admins) <= 1) fail('No se puede quitar el rol al último administrador', 403);
+            }
+            foreach ($db['users'] as $oid => $other) {
+                if ($oid !== $uid && ($other['email'] ?? '') === $email) fail('Ese correo ya pertenece a otro usuario', 409);
+            }
+            $user['name'] = $name;
+            $user['email'] = $email;
+            $user['role'] = $role;
+            $user['site'] = $site;
+            if ($password !== '') {
+                $user['password'] = password_hash($password, PASSWORD_DEFAULT);
+                // cierra las sesiones del usuario editado por seguridad
+                foreach ($db['sessions'] as $k => $s) if (($s['uid'] ?? '') === $uid) unset($db['sessions'][$k]);
+            }
+            $db['users'][$uid] = $user;
+            record_audit($db, 'user_updated', $admin['id'], $uid . ' rol ' . $role);
+        });
+        send(['ok' => true]);
+
+    case 'delete_user': {
+        $admin = require_admin();
+        $b = json_input();
+        $uid = clean_text($b['user_id'] ?? '', 60);
+        if ($uid === $admin['id']) fail('No puedes eliminar tu propia cuenta', 403);
+        $stored = db_update(function (&$db) use ($uid, $admin) {
+            if (!isset($db['users'][$uid])) fail('Usuario no existe', 404);
+            $user = $db['users'][$uid];
+            if (($user['role'] ?? '') === 'admin') {
+                $admins = array_filter($db['users'], fn($u) => ($u['role'] ?? '') === 'admin');
+                if (count($admins) <= 1) fail('No se puede eliminar al último administrador', 403);
+            }
+            // entregas de módulos y evidencias de actividades (con sus archivos);
+            // los recursos institucionales se conservan
+            $stored = [];
+            foreach ($db['submissions'] as $sid => $s) {
+                if (($s['user_id'] ?? '') !== $uid) continue;
+                foreach (($s['files'] ?? []) as $f) $stored[] = $f['stored'];
+                unset($db['submissions'][$sid]);
+            }
+            foreach (($db['activity_submissions'] ?? []) as $sid => $s) {
+                if (($s['user_id'] ?? '') !== $uid) continue;
+                foreach (($s['files'] ?? []) as $f) $stored[] = $f['stored'];
+                unset($db['activity_submissions'][$sid]);
+            }
+            unset($db['modules'][$uid], $db['evaluations'][$uid]);
+            foreach ($db['sessions'] as $k => $s) if (($s['uid'] ?? '') === $uid) unset($db['sessions'][$k]);
+            unset($db['users'][$uid]);
+            record_audit($db, 'user_deleted', $admin['id'], substr((string) ($user['name'] ?? ''), 0, 80));
+            return array_values(array_unique($stored));
+        });
+        try { blob()->delete($stored); } catch (Throwable) { /* los registros ya salieron de la base */ }
+        send(['ok' => true]);
+    }
+
     case 'change_password':
         $u = require_user();
         $b = json_input();
