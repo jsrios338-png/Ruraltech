@@ -668,7 +668,7 @@ try {
     fail('El servidor está muy ocupado. Inténtelo de nuevo.', 503);
 } catch (Throwable $e) {
     error_log('RuralTech error: ' . $e->getMessage());
-    fail('Error interno del servidor', 500);
+    fail('Error interno del servidor: ' . $e->getMessage(), 500); // DIAGNOSTICO TEMPORAL — revertir
 }
 
 /** Cookie de sesión (identificador propio, no PHP sessions). */
