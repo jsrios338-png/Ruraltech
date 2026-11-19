@@ -96,14 +96,19 @@
     }
 
     try {
-      const [users, evaluations] = await Promise.all([api('users'), api('evaluations')]);
+      const [users, resources, evaluations] = await Promise.all([
+        api('users'),
+        api('resource_list'),
+        api('evaluations'),
+      ]);
       const teachers = users.filter(user => user.role === 'teacher');
       const average = teachers.length
         ? Math.round(teachers.reduce((total, user) => total + user.progress.percent, 0) / teachers.length)
         : 0;
       const completedModules = teachers.reduce((total, user) => total + user.progress.completed, 0);
+      const activeActivities = 0; // se calcula en activity_page si se necesita
 
-      window.adminUsers = teachers;
+      window.adminUsers = users;
       window.adminEvals = evaluations;
       show(`<section class="hero">
         <p class="eyebrow">GESTIÓN DE LA COMUNIDAD</p>
@@ -134,6 +139,25 @@
           </tr>`).join('') || '<tr><td colspan="6">Todavía no hay docentes registrados.</td></tr>'}
         </tbody></table></div>
       </section>
+      <section class="panel admin-panel">
+        <div class="section-heading"><div><p class="eyebrow">MATERIALES INSTITUCIONALES</p><h2>Recursos publicados</h2></div>
+        ${resources.map(r => {
+          const video = /\.(mp4|webm)$/i.test(r.file.name);
+          return `<div class="card"><h3>${esc(r.title)}</h3><p>${esc(r.description)}</p>
+            ${video ? `<video controls preload="metadata" style="width:100%;max-width:760px" src="api.php?action=download&id=${encodeURIComponent(r.file.id)}&inline=1">El navegador no puede reproducir este video.</video>` : ''}
+            <div class="row"><span>${esc(r.file.name)}${r.module === 'all' ? ' · General' : ` · Módulo ${esc(r.module)}`}</span>
+              <button class="btn" onclick="fileDownload('${esc(r.file.id)}')">Descargar</button>
+              <button class="btn danger" onclick="removePublishedResource('${esc(r.id)}')">Retirar</button>
+            </div></div>`;
+        }).join('') || '<p>No hay recursos publicados.</p>'}
+        <div class="section-heading"><div><p class="eyebrow">Publicar nuevo material</p><h2>Subir recurso</h2></div>
+        <label for="resourceTitleNew">Título</label><input id="resourceTitleNew" maxlength="150">
+        <label for="resourceDescriptionNew">Descripción</label><textarea id="resourceDescriptionNew" maxlength="1500"></textarea>
+        <label for="resourceModuleNew">Módulo</label><select id="resourceModuleNew"><option value="all">Banco general</option>${MODULES.map((_, i) => `<option value="${i}">Módulo ${i}</option>`).join('')}</select>
+        <label for="resourceFileNew">Archivo (PDF, Word, Excel, imágenes, video)</label><input type="file" id="resourceFileNew" accept=".pdf,.doc,.docx,.odt,.jpg,.jpeg,.png,.webp,.txt,.rtf,.ppt,.pptx,.xls,.xlsx,.mp4,.webm">
+        <p class="muted small">Documentos: máximo 15 MB. Videos MP4/WebM: máximo 100 MB.</p>
+        <button class="btn" onclick="publishResource(this)">Publicar material</button>${barHTML('upResource')}
+        </section>
       <section class="admin-columns">
         <div class="panel">
           <p class="eyebrow">ACCESO A LA PLATAFORMA</p><h2>Crear cuenta</h2>
