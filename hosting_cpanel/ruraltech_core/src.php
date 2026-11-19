@@ -5,7 +5,7 @@ const PRIVATE_DIR = ROOT.'/private';
 const DB_FILE = PRIVATE_DIR.'/data.json';
 const MAX_UPLOAD = 15728640;
 const EXTENSIONS = ['pdf','doc','docx','odt','jpg','jpeg','png','webp','txt','rtf','ppt','pptx','xls','xlsx'];
-function initial_db():array {return ['users'=>[], 'modules'=>[], 'submissions'=>[], 'resources'=>[], 'community'=>[], 'evaluations'=>[], 'audit'=>[]];}
+function initial_db():array {return ['users'=>[], 'modules'=>[], 'submissions'=>[], 'resources'=>[], 'community'=>[], 'evaluations'=>[], 'audit'=>[], 'activities'=>[], 'activity_submissions'=>[]];}
 function db_read():array {
  $fp=fopen(DB_FILE,'c+'); if(!$fp)throw new RuntimeException('No se pudo abrir la base de datos');
  try {flock($fp,LOCK_SH);rewind($fp);$s=stream_get_contents($fp);flock($fp,LOCK_UN);}finally{fclose($fp);}
@@ -64,6 +64,7 @@ function file_record(array $file,string $uid,string $kind):array {
 function all_files(array $db):array {
  $files=[];
  foreach($db['submissions'] as $s)foreach($s['files']??[] as $f)$files[$f['id']]=$f;
+ foreach(($db['activity_submissions']??[]) as $s)foreach($s['files']??[] as $f)$files[$f['id']]=$f;
  foreach($db['resources'] as $r)if(isset($r['file']))$files[$r['file']['id']]=$r['file'];
  return $files;
 }
